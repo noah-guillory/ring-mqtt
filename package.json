@@ -5,7 +5,7 @@
   "description": "Ring Devices via MQTT",
   "main": "ring-mqtt.js",
   "dependencies": {
-    "@homebridge/camera-utils": "^2.2.7",
+    "@homebridge/camera-utils": "^3.0.0",
     "aedes": "^0.51.3",
     "body-parser": "^1.20.3",
     "chalk": "^5.4.1",
