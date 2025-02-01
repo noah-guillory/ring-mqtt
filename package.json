@@ -1,6 +1,6 @@
 {
   "name": "ring-mqtt",
-  "version": "5.8.1",
+  "version": "5.9.0",
   "type": "module",
   "description": "Ring Devices via MQTT",
   "main": "ring-mqtt.js",
@@ -8,7 +8,7 @@
     "@homebridge/camera-utils": "^2.2.7",
     "aedes": "^0.51.3",
     "body-parser": "^1.20.3",
-    "chalk": "^5.4.0",
+    "chalk": "^5.4.1",
     "date-fns": "^4.1.0",
     "debug": "^4.4.0",
     "express": "^4.21.2",
@@ -16,14 +16,14 @@
     "js-yaml": "^4.1.0",
     "minimist": "^1.2.8",
     "mqtt": "^5.10.3",
-    "ring-client-api": "^13.2.1",
+    "ring-client-api": "^14.0.0-beta.0",
     "rxjs": "^7.8.1",
-    "werift": "^0.20.1",
+    "werift": "^0.21.12",
     "write-file-atomic": "^6.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",
-    "eslint": "^9.17.0",
+    "eslint": "^9.19.0",
     "globals": "^15.14.0"
   },
   "scripts": {
