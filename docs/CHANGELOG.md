@@ -1,14 +1,21 @@
 ## v5.9.0
-The release introduces a new feature, the snapshot stream.
+This release includes a new feature I refer to as the **Snapshot Stream**.  This "psuedo-live" RTSP video stream with the goal to make it possible, even easy, to use Ring cameras, even battery powered ones, with video systems that require a 24x7 live stream, while not actually keeping a live stream, thus preserving all of the existing features of Ring camera motion notifications, while fully integrating with NVR tools such as Frigate.
+
+It does this by producing an H.264/AVC video stream, running at 720p and 5 FPS, generated from standard Ring snapshots, however, when motion or ding events are detected, the code temporarily activates a live stream and graps images directly from the stream, producing a video that is usable for NVR tools.  Please read more about the snapshot stream in the [Video Streaming](https://github.com/tsightler/ring-mqtt/wiki/Video-Streaming) section of the project wiki.
+
+**Minor Enhancements**
+ - Significantly reduced live stream startup time, live streams now consistently start in <1.5 seconds on most hardware.
 
 **Dependency Updates**
- - chalk 5.4.0
+ - chalk 5.4.1
+ - ring-client-api 14.0.0-beta.0
+ - werift 0.21.12
 
 ## v5.8.0
 The 5.8.x branch is focused primarily on cleaning up various portions of the code to improve long-term maintainability, there are no major features planned for this branch.
 
 **Minor Enhancements**
-- The web based authenticator has been completely re-written in this release. It now serves an singlem dynamic html document, from memory, properly displays error messages, more safely handles sensitive data such as passwords/2fa codes (information is deleted from session state immediately after it is submitted) and uses an updated theme that integrates more cleanly into the Home Assistant UI, including automatic support for light/dark mode.
+ - The web based authenticator has been completely re-written in this release. It now serves an singlem dynamic html document, from memory, properly displays error messages, more safely handles sensitive data such as passwords/2fa codes (information is deleted from session state immediately after it is submitted) and uses an updated theme that integrates more cleanly into the Home Assistant UI, including automatic support for light/dark mode.
 
 **Dependency Updates**
  - @homebridge/camera-utils 2.2.7

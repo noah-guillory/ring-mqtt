@@ -73,7 +73,7 @@ logger() {
 }
 
 # Trap signals so that the MQTT command to stop the stream can be published on exit
-trap stop INT TERM EXIT
+trap stop INT TERM
 
 logger "Sending command to activate ${type} stream ON-DEMAND"
 mosquitto_pub -i "${client_id}_pub" -L "mqtt://127.0.0.1:51883/${command_topic}" -m "ON-DEMAND ${rtsp_pub_url}" &
