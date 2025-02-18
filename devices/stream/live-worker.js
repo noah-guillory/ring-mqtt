@@ -7,22 +7,23 @@ class LiveStreamWorker {
         this.deviceName = deviceName
         this.doorbotId = doorbotId
         this.liveStream = null
+        this.altVideoData = null
         this.stopping = false
 
-        this.initializeMessageHandler()
+        this.processMessages()
     }
 
-    initializeMessageHandler() {
+    processMessages() {
         parentPort.on("message", async (data) => {
             const { command, streamData } = data
 
             try {
                 switch (command) {
                     case 'start':
-                        await this.handleStartCommand(streamData)
+                        await this.start(streamData)
                         break;
                     case 'stop':
-                        await this.handleStopCommand()
+                        await this.stop()
                         break;
                     default:
                         this.logError(`Unknown command received: ${command}`)
@@ -34,7 +35,7 @@ class LiveStreamWorker {
         })
     }
 
-    async handleStartCommand(streamData) {
+    async start(streamData) {
         if (this.isStreamStopping) {
             this.logError("Live stream could not be started because it is in stopping state")
             this.updateState('failed')
@@ -50,7 +51,7 @@ class LiveStreamWorker {
         await this.startLiveStream(streamData)
     }
 
-    async handleStopCommand() {
+    async stop() {
         if (this.liveStream) {
             await this.stopLiveStream()
         }
@@ -68,15 +69,17 @@ class LiveStreamWorker {
             const streamConnection = new WebrtcConnection(streamData.ticket, cameraData)
             this.liveStream = new StreamingSession(cameraData, streamConnection)
 
-            this.setupConnectionStateHandler()
-            await this.startTranscodingProcess(streamData.rtspPublishUrl)
-            this.setupCallEndedHandler()
+            this.handleCallState()
+            this.handleCallEnded()
+            await this.startTranscoding(streamData.rtspPublishUrl)
         } catch (error) {
-            this.handleStreamError(error)
+            this.logError(error)
+            this.updateState('failed')
+            this.liveStream = null
         }
     }
 
-    setupConnectionStateHandler() {
+    handleCallState() {
         this.liveStream.connection.pc.onConnectionState.subscribe(async (state) => {
             switch(state) {
                 case 'connected':
@@ -86,25 +89,27 @@ class LiveStreamWorker {
                 case 'failed':
                     this.updateState('failed')
                     this.logInfo('Live stream WebRTC connection has failed')
-                    await this.handleConnectionFailure()
+                    this.liveStream.stop()
+                    await new Promise(res => setTimeout(res, 2000))
+                    this.liveStream = null
                     break
             }
         })
     }
 
-    async handleConnectionFailure() {
-        this.liveStream.stop()
-        await new Promise(res => setTimeout(res, 2000))
-        this.liveStream = null
+    handleCallEnded() {
+        this.liveStream.onCallEnded.subscribe(() => {
+            this.logInfo('Live stream WebRTC session has disconnected')
+            this.updateState('inactive')
+            this.liveStream = null
+        });
     }
 
-    async startTranscodingProcess(rtspPublishUrl) {
+    async startTranscoding(rtspPublishUrl) {
         this.logInfo('Live stream transcoding process is starting')
 
         const transcodingConfig = {
             input: [
-                '-use_wallclock_as_timestamps', '1',
-                '-itsoffset', '0.2',
                 '-probesize', '32K',
                 '-analyzeduration', '0',
             ],
@@ -119,23 +124,15 @@ class LiveStreamWorker {
                 '-c:v', 'copy'
             ],
             output: [
+                '-ss', '0.2',
                 '-flags', '+global_header',
-                '-avioflags', 'direct',
                 '-f', 'rtsp',
                 '-rtsp_transport', 'tcp',
                 rtspPublishUrl
         ]}
 
-        await this.liveStream.startTranscoding(transcodingConfig)
+        this.altVideoData = await this.liveStream.startTranscoding(transcodingConfig)
         this.logInfo('Live stream transcoding process has started')
-    }
-
-    setupCallEndedHandler() {
-        this.liveStream.onCallEnded.subscribe(() => {
-            this.logInfo('Live stream WebRTC session has disconnected')
-            this.updateState('inactive')
-            this.liveStream = null
-        });
     }
 
     async stopLiveStream() {
@@ -163,12 +160,6 @@ class LiveStreamWorker {
         this.stopping = false
     }
 
-    handleStreamError(error) {
-        this.logError(error)
-        this.updateState('failed')
-        this.liveStream = null
-    }
-
     // Helper methods for logging and state updates
     logInfo(message) {
         parentPort.postMessage({ type: 'log_info', data: message })
@@ -179,7 +170,7 @@ class LiveStreamWorker {
     }
 
     updateState(state) {
-        parentPort.postMessage({ type: 'state', data: state })
+        parentPort.postMessage({ type: 'state', data: state, altVideoData: this.altVideoData })
     }
 }
 

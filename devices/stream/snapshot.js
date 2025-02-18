@@ -7,6 +7,15 @@ export class SnapshotStream {
         this.mqttCamera = device
         this.status = 'inactive'
         this.interval = null
+        this.livesnaps = {
+            active: false,
+            session: false,
+            timeout: 0
+        }
+        this.keepalive = {
+            active: false,
+            session: false
+        }
         this.rtsp = {
             active: false,
             session: false
@@ -14,11 +23,6 @@ export class SnapshotStream {
         this.snapshot = {
             active: false,
             session: false
-        }
-        this.livesnaps = {
-            active: false,
-            session: false,
-            timeout: 0
         }
     }
 
@@ -44,8 +48,8 @@ export class SnapshotStream {
             '-f', 'mpegts',
             '-probesize', '32k',
             '-analyzeduration', '0',
-            '-i', '-',
-            '-ss', '0.2',
+            '-i', 'pipe:',
+            '-ss', '.2',
             '-c:v', 'copy',
             '-avioflags', 'direct',
             '-f', 'rtsp',
@@ -63,21 +67,22 @@ export class SnapshotStream {
         return new Promise((resolve, reject) => {
             this.rtsp.session.on('spawn', async () => {
                 this.snapshot.session = spawn(pathToFfmpeg, [
+                    '-hide_banner',
                     '-f', 'image2pipe',
                     '-probesize', '32k',
                     '-analyzeduration', '0',
-                    '-i', '-',
+                    '-i', 'pipe:',
                     '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
                     '-sws_flags', 'lanczos',
                     '-c:v', 'libx264',
-                    '-b:v', '2M',
-                    '-preset', 'ultrafast',
-                    '-tune', 'zerolatency',
+                    '-b:v', '6M',
                     '-r', '5',
                     '-g', '1',
+                    '-preset', 'ultrafast',
+                    '-tune', 'zerolatency',
                     '-avioflags', 'direct',
                     '-f', 'mpegts',
-                    '-'
+                    'pipe:1'
                 ])
 
                 this.snapshot.session.on('spawn', async () => {
@@ -103,46 +108,90 @@ export class SnapshotStream {
 
         this.mqttCamera.debug('Starting a live snapshot stream for camera')
 
-        this.livesnaps.session = spawn(pathToFfmpeg, [
-            '-rtsp_transport', 'tcp',
-            '-probesize', '32K',
-            '-analyzeduration', '0',
+        // We need a live stream, but don't want to rely on global keepalive so we start one here
+        this.keepalive.session = spawn(pathToFfmpeg, [
             '-i', `rtsp://${this.mqttCamera.rtspCredentials}localhost:8554/${this.mqttCamera.deviceId}_live`,
-            '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
-            '-sws_flags', 'lanczos',
-            '-c:v', 'libx264',
-            '-b:v', '2M',
-            '-preset', 'ultrafast',
-            '-tune', 'zerolatency',
-            '-r', '5',
-            '-g', '1',
-            '-avioflags', 'direct',
-            '-f', 'mpegts',
-            'pipe:1'
+            '-map', '0:a:0',
+            '-c:a', 'copy',
+            '-f', 'null',
+            '/dev/null'
         ])
 
-        this.livesnaps.session.stdout.once('data', () => {
-            this.snapshot.session.stdout.unpipe(this.rtsp.session.stdin)
-            this.livesnaps.session.stdout.pipe(this.rtsp.session.stdin)
+        this.keepalive.session.on('spawn', async () => {
+            this.keepalive.active = true
+
+            const liveStream = this.mqttCamera.streams.live
+            const liveStreamStartTimeout = Date.now() + 5000
+            while (!liveStream.altVideoData && Date.now() < liveStreamStartTimeout) {
+                await utils.msleep(50)
+            }
+
+            if (liveStream.altVideoData) {
+                this.livesnaps.session = spawn(pathToFfmpeg, [
+                    '-hide_banner',
+                    '-protocol_whitelist', 'pipe,udp,rtp,fd,file,crypto',
+                    '-fflags', 'nobuffer',
+                    '-flags', 'low_delay',
+                    '-use_wallclock_as_timestamps', '1',
+                    '-itsoffset', '-0.2',
+                    '-probesize', '32K',
+                    '-analyzeduration', '0',
+                    '-f', 'sdp',
+                    '-i', 'pipe:',
+                    '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
+                    '-sws_flags', 'lanczos',
+                    '-c:v', 'libx264',
+                    '-b:v', '6M',
+                    '-preset', 'ultrafast',
+                    '-tune', 'zerolatency',
+                    '-r', '5',
+                    '-g', '1',
+                    '-avioflags', 'direct',
+                    '-f', 'mpegts',
+                    'pipe:1'
+                ])
+
+                this.livesnaps.session.on('spawn', async () => {
+                    liveStream.unbindAltVideoPorts()
+                    this.livesnaps.session.stdin.write(liveStream.altVideoData.sdp)
+                    this.livesnaps.session.stdin.end()
+                })
+
+                this.livesnaps.session.stdout.once('data', () => {
+                    this.snapshot.session.stdout.unpipe(this.rtsp.session.stdin)
+                    this.livesnaps.session.stdout.pipe(this.rtsp.session.stdin)
+                })
+
+                this.livesnaps.session.on('close', async () => {
+                    this.mqttCamera.debug('The live snapshot stream has stopped')
+                    this.mqttCamera.updateSnapshot('interval')
+                    this.livesnaps.session.stdout.unpipe(this.rtsp.session.stdin)
+                    this.snapshot.session.stdout.pipe(this.rtsp.session.stdin)
+                    Object.assign(this.livesnaps, { active: false, session: false, image: false })
+                })
+
+                // The livesnap stream will stop after the specified duration
+                this.livesnaps.timeout = Date.now() + 5000 + (duration * 1000)
+                while (this.livesnaps.active && (Date.now() < this.livesnaps.timeout)) {
+                    await utils.sleep(1)
+                }
+            } else {
+                this.mqttCamera.debug('The live snapshot stream failed starting the live stream')
+            }
+
+            if (this.livesnaps.session) {
+                this.livesnaps.session.kill()
+            }
+
+            if (this.keepalive.session) {
+                this.keepalive.session.kill()
+            }
         })
 
-        this.livesnaps.session.on('close', async () => {
-            this.mqttCamera.debug('The live snapshot stream has stopped')
-            this.mqttCamera.updateSnapshot('interval')
-            this.livesnaps.session.stdout.unpipe(this.rtsp.session.stdin)
-            this.snapshot.session.stdout.pipe(this.rtsp.session.stdin)
-            Object.assign(this.livesnaps, { active: false, session: false, image: false })
+        this.keepalive.session.on('close', async () => {
+            this.keepalive.active = false
+            this.keepalive.session = false
         })
-
-        // The livesnap stream will stop after the specified duration
-        this.livesnaps.timeout = Math.floor(Date.now()/1000) + duration + 5
-        while (this.livesnaps.active && Math.floor(Date.now()/1000) < this.livesnaps.timeout) {
-            await utils.sleep(1)
-        }
-
-        if (this.livesnaps.session) {
-            this.livesnaps.session.kill()
-        }
     }
 
     startSnapshotInterval() {
@@ -157,7 +206,7 @@ export class SnapshotStream {
             } else {
                 this.stop()
             }
-        }, 40)
+        }, 50)
     }
 
     async stop() {

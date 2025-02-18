@@ -8,12 +8,13 @@ import pathToFfmpeg from 'ffmpeg-for-homebridge'
 import { concatMap, take } from 'rxjs/operators'
 import { Subscribed } from './subscribed.js'
 
-function getCleanSdp(sdp) {
+function getCleanSdp(sdp, videoOnly) {
     return sdp
-        .split('\nm=')
-        .slice(1)
-        .map((section) => 'm=' + section)
-        .join('\n')
+      .split('\nm=')
+      .slice(1)
+      .map((section) => 'm=' + section)
+      .filter((section) => !videoOnly || section.startsWith('m=video'))
+      .join('\n')
 }
 
 export class StreamingSession extends Subscribed {
@@ -54,8 +55,10 @@ export class StreamingSession extends Subscribed {
         if (this.hasEnded) {
             return
         }
-        const videoPort = await this.reservePort(1)
-        const audioPort = await this.reservePort(1)
+
+        const videoPort = await this.reservePort(1),
+            audioPort = await this.reservePort(1),
+            altVideoPort = await this.reservePort(1)
 
         const ringSdp = await Promise.race([
             firstValueFrom(this.connection.onCallAnswered),
@@ -85,6 +88,9 @@ export class StreamingSession extends Subscribed {
             .replace(/m=audio \d+/, `m=audio ${audioPort}`)
             .replace(/m=video \d+/, `m=video ${videoPort}`)
 
+        const altVideoSdp = getCleanSdp(ringSdp, true)
+            .replace(/m=video \d+/, `m=video ${altVideoPort}`)
+
         const ff = new FfmpegProcess({
             ffmpegArgs: ffmpegInputArguments.concat(
                 ...(ffmpegOptions.audio || ['-acodec', 'aac']),
@@ -99,15 +105,25 @@ export class StreamingSession extends Subscribed {
         })).subscribe())
 
         this.addSubscriptions(this.onVideoRtp.pipe(concatMap((rtp) => {
-            return this.videoSplitter.send(rtp.serialize(), { port: videoPort })
+            const serializedRtp = rtp.serialize()
+            return Promise.all([
+                this.videoSplitter.send(serializedRtp, { port: videoPort }),
+                this.videoSplitter.send(serializedRtp, { port: altVideoPort })
+            ])
         })).subscribe())
 
         this.onCallEnded.pipe(take(1)).subscribe(() => ff.stop())
 
+        console.log(inputSdp)
         ff.writeStdin(inputSdp)
 
         // Request a key frame now that ffmpeg is ready to receive
         this.requestKeyFrame()
+
+        return {
+            port: altVideoPort,
+            sdp: altVideoSdp
+        }
     }
 
     callEnded() {

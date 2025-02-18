@@ -1,12 +1,16 @@
 import { Worker } from 'worker_threads'
+import dgram from 'dgram'
 
 export class LiveStream {
     constructor(device) {
+        this.altVideoData = false
         this.mqttCamera = device
+        this.rtpSocket = false
+        this.rtcpSocket = false
         this.session = false
         this.status = 'inactive'
 
-        this.worker = new Worker('./devices/stream/worker.js', {
+        this.worker = new Worker('./devices/stream/live-worker.js', {
             workerData: {
                 doorbotId: this.mqttCamera.device.id,
                 deviceName: this.mqttCamera.deviceData.name
@@ -19,14 +23,14 @@ export class LiveStream {
                     case 'active':
                         this.status = 'active'
                         this.session = true
+                        this.altVideoData = message.altVideoData
+                        this.bindAltVideoPorts()
                         break
                     case 'inactive':
-                        this.status = 'inactive'
-                        this.session = false
+                        this.clearSession('inactive')
                         break
                     case 'failed':
-                        this.status = 'failed'
-                        this.session = false
+                        this.clearSession('failed')
                         break
                 }
                 this.mqttCamera.publishStreamState()
@@ -41,6 +45,33 @@ export class LiveStream {
                 }
             }
         })
+    }
+
+    clearSession(status) {
+        this.status = status
+        this.session = false
+        this.altVideoData = false
+    }
+
+    bindAltVideoPorts() {
+        console.log(this.altVideoData.sdp)
+        if (this.altVideoData) {
+            this.rtpSocket = dgram.createSocket('udp4')
+            this.rtcpSocket = dgram.createSocket('udp4')
+            this.rtpSocket.bind(this.altVideoData.port)
+            this.rtcpSocket.bind(this.altVideoData.port + 1)
+        }
+    }
+
+    unbindAltVideoPorts() {
+        if (this.rtpSocket) {
+            this.rtpSocket.close()
+        }
+        if (this.rtcpSocket) {
+            this.rtcpSocket.close()
+        }
+        this.rtpSocket = false
+        this.rtcpSocket = false
     }
 
     async start(rtspPublishUrl) {
@@ -71,17 +102,16 @@ export class LiveStream {
             this.worker.postMessage({ command: 'start', streamData })
         } else {
             this.mqttCamera.debug('Live stream failed to initialize WebRTC signaling session')
-            this.status = 'failed'
-            this.session = false
+            this.clearSession('failed')
             this.mqttCamera.publishStreamState()
         }
     }
 
     async stop() {
+        this.unbindAltVideoPorts()
         if (this.session) {
             this.worker.postMessage({ command: 'stop' })
         }
-        this.status = 'inactive'
-        this.session = false
+        this.clearSession('inactive')
     }
 }
