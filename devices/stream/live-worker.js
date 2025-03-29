@@ -3,11 +3,11 @@ import { WebrtcConnection } from './lib/webrtc-connection.js'
 import { StreamingSession } from './lib/streaming-session.js'
 
 class LiveStreamWorker {
-    constructor(deviceName, doorbotId) {
-        this.deviceName = deviceName
-        this.doorbotId = doorbotId
+    constructor(workerData) {
+        this.deviceName = workerData.deviceName
+        this.deviceId = workerData.deviceId
+        this.doorbotId = workerData.doorbotId
         this.liveStream = null
-        this.altVideoData = null
         this.stopping = false
 
         this.processMessages()
@@ -69,8 +69,8 @@ class LiveStreamWorker {
             const streamConnection = new WebrtcConnection(streamData.ticket, cameraData)
             this.liveStream = new StreamingSession(cameraData, streamConnection)
 
-            this.handleCallState()
-            this.handleCallEnded()
+            this.subscribeCallState()
+            this.subscribeCallEnded()
             await this.startTranscoding(streamData.rtspPublishUrl)
         } catch (error) {
             this.logError(error)
@@ -79,7 +79,7 @@ class LiveStreamWorker {
         }
     }
 
-    handleCallState() {
+    subscribeCallState() {
         this.liveStream.connection.pc.onConnectionState.subscribe(async (state) => {
             switch(state) {
                 case 'connected':
@@ -97,7 +97,7 @@ class LiveStreamWorker {
         })
     }
 
-    handleCallEnded() {
+    subscribeCallEnded() {
         this.liveStream.onCallEnded.subscribe(() => {
             this.logInfo('Live stream WebRTC session has disconnected')
             this.updateState('inactive')
@@ -112,26 +112,26 @@ class LiveStreamWorker {
             input: [
                 '-probesize', '32K',
                 '-analyzeduration', '0',
+                '-buffer_size', '1048576'
             ],
             audio: [
                 '-map', '0:a',
-                '-c:a:0', 'aac',
+               '-c:a:0', 'aac',
                 '-map', '0:a',
-                '-c:a:1', 'copy'
+                '-c:a:0', 'copy'
             ],
             video: [
                 '-map', '0:v',
                 '-c:v', 'copy'
             ],
             output: [
-                '-ss', '0.2',
                 '-flags', '+global_header',
                 '-f', 'rtsp',
                 '-rtsp_transport', 'tcp',
                 rtspPublishUrl
         ]}
 
-        this.altVideoData = await this.liveStream.startTranscoding(transcodingConfig)
+        await this.liveStream.startTranscoding(transcodingConfig)
         this.logInfo('Live stream transcoding process has started')
     }
 
@@ -170,10 +170,10 @@ class LiveStreamWorker {
     }
 
     updateState(state) {
-        parentPort.postMessage({ type: 'state', data: state, altVideoData: this.altVideoData })
+        parentPort.postMessage({ type: 'state', data: state })
     }
 }
 
 // Initialize the worker
-const worker = new LiveStreamWorker(workerData.deviceName, workerData.doorbotId)
+const worker = new LiveStreamWorker(workerData)
 export default worker

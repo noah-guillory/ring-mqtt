@@ -48,13 +48,13 @@ export class LiveStream {
     }
 
     clearSession(status) {
-        this.status = status
-        this.session = false
         this.altVideoData = false
+        this.session = false
+        this.status = status
+        this.unbindAltVideoPorts()
     }
 
     bindAltVideoPorts() {
-        console.log(this.altVideoData.sdp)
         if (this.altVideoData) {
             this.rtpSocket = dgram.createSocket('udp4')
             this.rtcpSocket = dgram.createSocket('udp4')
@@ -108,7 +108,6 @@ export class LiveStream {
     }
 
     async stop() {
-        this.unbindAltVideoPorts()
         if (this.session) {
             this.worker.postMessage({ command: 'stop' })
         }

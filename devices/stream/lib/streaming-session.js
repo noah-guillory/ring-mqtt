@@ -114,11 +114,7 @@ export class StreamingSession extends Subscribed {
 
         this.onCallEnded.pipe(take(1)).subscribe(() => ff.stop())
 
-        console.log(inputSdp)
         ff.writeStdin(inputSdp)
-
-        // Request a key frame now that ffmpeg is ready to receive
-        this.requestKeyFrame()
 
         return {
             port: altVideoPort,

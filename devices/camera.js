@@ -34,7 +34,9 @@ export default class Camera extends RingPolledDevice {
         this.data = {
             motion: {
                 active_ding: false,
-                duration: savedState?.motion?.duration ? savedState.motion.duration : 30,
+                duration: savedState?.motion?.duration
+                    ? savedState.motion.duration
+                    : this.device.data.settings.video_settings.clip_length_max,
                 publishedDuration: false,
                 last_ding: 0,
                 last_ding_expires: 0,
@@ -48,8 +50,10 @@ export default class Camera extends RingPolledDevice {
             ...this.device.isDoorbot ? {
                 ding: {
                     active_ding: false,
-                    duration: savedState?.ding?.duration ? savedState.ding.duration : 30,
-                    publishedDurations: false,
+                    duration: savedState?.ding?.duration
+                        ? savedState.ding.duration
+                        : this.device.data.settings.video_settings.clip_length_max,
+                    publishedDuration: false,
                     last_ding: 0,
                     last_ding_expires: 0,
                     last_ding_time: 'none',

@@ -48,10 +48,13 @@ export class SnapshotStream {
             '-f', 'mpegts',
             '-probesize', '32k',
             '-analyzeduration', '0',
+            '-fflags', '+discardcorrupt+genpts',
+            '-r', '5',
+            '-ss', '0.2',
             '-i', 'pipe:',
-            '-ss', '.2',
             '-c:v', 'copy',
             '-avioflags', 'direct',
+            '-flags', '+global_header',
             '-f', 'rtsp',
             '-rtsp_transport', 'tcp',
             rtspPublishUrl
@@ -71,11 +74,12 @@ export class SnapshotStream {
                     '-f', 'image2pipe',
                     '-probesize', '32k',
                     '-analyzeduration', '0',
+                    '-r', '20',
                     '-i', 'pipe:',
                     '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
                     '-sws_flags', 'lanczos',
                     '-c:v', 'libx264',
-                    '-b:v', '6M',
+                    '-b:v', '3M',
                     '-r', '5',
                     '-g', '1',
                     '-preset', 'ultrafast',
@@ -130,18 +134,17 @@ export class SnapshotStream {
                 this.livesnaps.session = spawn(pathToFfmpeg, [
                     '-hide_banner',
                     '-protocol_whitelist', 'pipe,udp,rtp,fd,file,crypto',
-                    '-fflags', 'nobuffer',
                     '-flags', 'low_delay',
-                    '-use_wallclock_as_timestamps', '1',
-                    '-itsoffset', '-0.2',
                     '-probesize', '32K',
                     '-analyzeduration', '0',
+                    '-fflags', '+genpts',
+                    '-r', '20',
                     '-f', 'sdp',
                     '-i', 'pipe:',
                     '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
                     '-sws_flags', 'lanczos',
                     '-c:v', 'libx264',
-                    '-b:v', '6M',
+                    '-b:v', '3M',
                     '-preset', 'ultrafast',
                     '-tune', 'zerolatency',
                     '-r', '5',
@@ -163,6 +166,7 @@ export class SnapshotStream {
                 })
 
                 this.livesnaps.session.on('close', async () => {
+                    liveStream.bindAltVideoPorts()
                     this.mqttCamera.debug('The live snapshot stream has stopped')
                     this.mqttCamera.updateSnapshot('interval')
                     this.livesnaps.session.stdout.unpipe(this.rtsp.session.stdin)
@@ -171,20 +175,20 @@ export class SnapshotStream {
                 })
 
                 // The livesnap stream will stop after the specified duration
-                this.livesnaps.timeout = Date.now() + 5000 + (duration * 1000)
-                while (this.livesnaps.active && (Date.now() < this.livesnaps.timeout)) {
+                const livesnapsTimeout = Date.now() + 5000 + (duration * 1000)
+                while (this.livesnaps.active && (Date.now() < livesnapsTimeout)) {
                     await utils.sleep(1)
                 }
             } else {
                 this.mqttCamera.debug('The live snapshot stream failed starting the live stream')
             }
 
-            if (this.livesnaps.session) {
-                this.livesnaps.session.kill()
+            if (this.livesnaps.active && this.livesnaps.session) {
+                this.livesnaps.session?.kill()
             }
 
-            if (this.keepalive.session) {
-                this.keepalive.session.kill()
+            if (this.keepalive.active && this.keepalive.session) {
+                this.keepalive.session?.kill()
             }
         })
 
@@ -198,7 +202,7 @@ export class SnapshotStream {
         this.interval = setInterval(async () => {
             if (this.status === 'active') {
                 try {
-                    this.snapshot.session.stdin.write(this.mqttCamera.data.snapshot.image)
+                    this.snapshot.session?.stdin?.write(this.mqttCamera.data.snapshot.image)
                 } catch {
                     this.mqttCamera.debug('Writing image to snapshot stream failed')
                     this.stop()
