@@ -15,13 +15,22 @@ export default class KiddeSmokeCoAlarm extends RingSocketDevice {
             name: `CO`,
             unique_id: `${this.deviceId}_gas` // Force backward compatible unique ID for this entity
         }
+        this.entity.co_level = {
+            component: 'sensor',
+            device_class: 'gas',
+            unit_of_measurement: 'ppm',
+            name: `CO Level`,
+            unique_id: `${this.deviceId}_co_level` // Force backward compatible unique ID for this entity
+        }
     }
 
     publishState() {
         const smokeState = this.device.data.components['alarm.smoke'] && this.device.data.components['alarm.smoke'].alarmStatus === 'active' ? 'ON' : 'OFF'
         const coState = this.device.data.components['alarm.co'] && this.device.data.components['alarm.co'].alarmStatus === 'active' ? 'ON' : 'OFF'
+        const coLevel = this.device.data.components['co.level'] && this.device.data.components['co.level'];
         this.mqttPublish(this.entity.smoke.state_topic, smokeState)
         this.mqttPublish(this.entity.co.state_topic, coState)
+        this.mqttPublish(this.entity.coLevel.state_topic, coLevel ?? 0)
         this.publishAttributes()
     }
 }
